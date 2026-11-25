@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>เกมจำลองเครื่องวัดความดัน</title>
+<style>
+:root{--bg:#f4f7f9;--card:#fff;--ink:#17262f;--mute:#5b6b75;--line:#d5dee4;--acc:#0b7a75;--bad:#b3261e;--good:#1b7f3b;color-scheme:light dark}
+@media (prefers-color-scheme:dark){:root{--bg:#10191e;--card:#18242b;--ink:#e6eef2;--mute:#9db0ba;--line:#2c3d47;--acc:#4fd1c5;--bad:#ff8a80;--good:#6fdc8c}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,"Noto Sans Thai",sans-serif}
+header,main{max-width:980px;margin:0 auto;padding:0 16px}
+h1{font-size:1.3rem;margin:16px 0 4px}
+.warn{background:#fff3cd;color:#5c4400;border:1px solid #e8c766;border-radius:8px;padding:8px 12px;margin:8px 0;font-size:.9rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin:12px 0}
+#cases{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
+#cases button{flex:0 0 auto;min-width:150px;text-align:left}
+button,select,input{font:inherit;color:inherit}
+button{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 12px;cursor:pointer;min-height:40px}
+button[aria-pressed=true],button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+button[aria-pressed=true] .story{color:inherit;opacity:.9}
+button:disabled{opacity:.5;cursor:not-allowed}
+.row{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;margin:6px 0}
+label{display:flex;gap:6px;align-items:center}
+canvas{width:100%;aspect-ratio:16/9;display:block;background:var(--card);border-radius:8px;touch-action:manipulation}
+#cap,#note{margin:6px 0;color:var(--mute)}
+#note{color:var(--bad);min-height:1.5em}
+#steth{display:inline-block;width:18px;height:18px;border-radius:50%;background:var(--line);vertical-align:middle;transition:background .05s}
+#steth.beat{background:var(--acc)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+#pump{touch-action:none;user-select:none;background:var(--acc);color:#fff;border-color:var(--acc);padding:12px 18px}
+#result .ok{color:var(--good)}#result .no{color:var(--bad)}
+.story{color:var(--mute);font-size:.9rem}
+</style>
+</head>
+<body>
+<header>
+  <h1>เกมจำลองเครื่องวัดความดันโลหิต</h1>
+  <div class="warn" role="note">⚠ สื่อการเรียนรู้เท่านั้น ไม่ใช่เครื่องมือวินิจฉัย ห้ามใช้ตัดสินใจทางการรักษา ค่าและอัลกอริทึมเป็นแบบจำลองอย่างง่าย</div>
+</header>
+<main>
+  <section id="cases" class="card" aria-label="เลือกเคสผู้ป่วย"></section>
+
+  <section class="card">
+    <div class="row">
+      <span>โหมด:</span>
+      <button id="m-manual" aria-pressed="true">พยาบาล (ฟังเสียง)</button>
+      <button id="m-auto" aria-pressed="false">วิศวกร (oscillometric)</button>
+      <span style="width:12px"></span>
+      <span>มุมมอง:</span>
+      <button data-view="external" aria-pressed="true">ภายนอก</button>
+      <button data-view="mech" aria-pressed="false">กลไก</button>
+      <button data-view="signal" aria-pressed="false">สัญญาณ</button>
+    </div>
+    <div class="row">
+      <label>ขนาด cuff
+        <select id="cuff"><option value="s">เล็ก</option><option value="m" selected>กลาง</option><option value="l">ใหญ่</option></select>
+      </label>
+      <label>ตำแหน่งแขน
+        <select id="arm"><option value="below">ต่ำกว่าระดับหัวใจ</option><option value="heart" selected>ระดับหัวใจ</option><option value="above">สูงกว่าระดับหัวใจ</option></select>
+      </label>
+      <label><input type="checkbox" id="sound" checked> เสียง</label>
+    </div>
+    <canvas id="cv" role="img" aria-label="แผนภาพเครื่องวัดความดัน"></canvas>
+    <p id="cap"></p>
+    <p id="note" aria-live="polite"></p>
+
+    <div id="ctl-manual">
+      <div class="row">
+        <button id="pump">กดค้างเพื่อปั๊มลม</button>
+        <label>วาล์วปล่อยลม <input type="range" id="valve" min="0" max="10" step="0.5" value="0"> <output id="valve-o">0</output> mmHg/s</label>
+        <span>เสียงชีพจร <span id="steth"></span></span>
+      </div>
+      <div class="row">
+        <button id="rec-s">บันทึก Systolic</button><output id="out-s">–</output>
+        <button id="rec-d">บันทึก Diastolic</button><output id="out-d">–</output>
+        <button id="submit-m" disabled>ส่งคำตอบ</button>
+      </div>
+      <p class="story">เคล็ดลับ: ปั๊มจนไม่ได้ยินเสียงสักจังหวะ แล้วปล่อยลมประมาณ 2–3 mmHg/s บันทึก Systolic ตอนได้ยินเสียงแรก และ Diastolic ตอนเสียงหาย</p>
+    </div>
+
+    <div id="ctl-auto" hidden>
+      <div class="row">
+        <button id="auto">เริ่มวัดอัตโนมัติ</button>
+        <label>สัดส่วน SBP <input type="number" id="r-s" min="0.3" max="0.9" step="0.05" value="0.55" style="width:70px"></label>
+        <label>สัดส่วน DBP <input type="number" id="r-d" min="0.3" max="0.9" step="0.05" value="0.75" style="width:70px"></label>
+        <button id="submit-a" disabled>ส่งค่าที่เครื่องวัดได้</button>
+      </div>
+      <p class="story">อัตราส่วนที่ใช้หา SBP/DBP จากแอมพลิจูดสูงสุดของ oscillation ต่างกันตามผู้ผลิต ลองปรับแล้วดูค่าที่เปลี่ยน (เคสเดิม ผู้ป่วยเดิม)</p>
+      <output id="out-a"></output>
+    </div>
+  </section>
+
+  <section id="result" class="card" hidden aria-live="polite"></section>
+</main>
+
+<script data-module="engine">
+// ===== engine: ฟิสิกส์/อัลกอริทึม ล้วน ไม่แตะ DOM =====
+var BPEngine = (function () {
+  var SIZE = { small: 10, ok: 0, large: -5 }, LVL = { below: 8, heart: 0, above: -8 };
+  function apparentPressures(c, e) {
+    var d = SIZE[e.cuffSize] + LVL[e.armLevel];
+    return { sbp: c.sbp + d, dbp: c.dbp + d };
+  }
+  function mapOf(c, e) { var a = apparentPressures(c, e); return a.dbp + (a.sbp - a.dbp) / 3; }
+  function korotkoff(c, e, p) {
+    var a = apparentPressures(c, e), d = a.sbp - c.sbp;
+    if (p >= a.sbp) return { sound: false, phase: 0 };
+    if (p <= a.dbp) return { sound: false, phase: 5 };
+    var f = (a.sbp - p) / (a.sbp - a.dbp);
+    var phase = f < 0.15 ? 1 : f < 0.4 ? 2 : f < 0.75 ? 3 : 4;
+    var gap = c.gap && p <= c.gap[0] + d && p >= c.gap[1] + d;
+    return { sound: !gap, phase: phase };
+  }
+  // ระฆังคว่ำ: แอมพลิจูด 0.55 ที่ sbp และ 0.75 ที่ dbp (ตรงกับอัตราส่วนเริ่มต้น)
+  function oscAmplitude(c, e, p) {
+    var a = apparentPressures(c, e), m = mapOf(c, e);
+    if (p >= a.sbp + 30 || p <= a.dbp - 30) return 0;
+    var d = p - m, w = d > 0 ? (a.sbp - m) / Math.sqrt(-Math.log(0.55)) : (m - a.dbp) / Math.sqrt(-Math.log(0.75));
+    return Math.exp(-Math.pow(d / w, 2));
+  }
+  var RANK = { s: 0, m: 1, l: 2 };
+  function cuffFit(c, chosen) {
+    var ideal = c.armCirc < 24 ? 's' : c.armCirc > 35 ? 'l' : 'm';
+    return RANK[chosen] < RANK[ideal] ? 'small' : RANK[chosen] > RANK[ideal] ? 'large' : 'ok';
+  }
+  function simulateBeats(c, e, startP, rng) {
+    rng = rng || Math.random;
+    var out = [];
+    if (!(e.deflationRate > 0)) return out;
+    var floor = Math.max(20, apparentPressures(c, e).dbp - 30), t = 0;
+    for (;;) {
+      t += (60 / c.hr) * (c.irregular ? 1 + (rng() - 0.5) * 0.7 : 1);
+      var p = startP - e.deflationRate * t;
+      if (p < floor) break;
+      var k = korotkoff(c, e, p);
+      out.push({ t: t, cuffP: p, amp: oscAmplitude(c, e, p) * (c.irregular ? 0.6 + 0.6 * rng() : 1), sound: k.sound, phase: k.phase });
+    }
+    return out;
+  }
+  function auscultatoryReading(b) {
+    var s = b.filter(function (x) { return x.sound; });
+    if (!s.length) return null;
+    return { sbp: s[0].cuffP, dbp: s[s.length - 1].cuffP, onsetValid: !b[0].sound };
+  }
+  function estimateOscillometric(b, r) {
+    r = r || { sbp: 0.55, dbp: 0.75 };
+    if (!b.length) return { sbp: 0, dbp: 0, map: 0, reliable: false };
+    var k = 0, i;
+    for (i = 1; i < b.length; i++) if (b[i].amp > b[k].amp) k = i;
+    var max = b[k].amp;
+    function cross(step, ratio) { // หาจุดที่ amp ตกลงถึง ratio*max แล้ว interpolate
+      var thr = ratio * max;
+      for (var j = k + step; j >= 0 && j < b.length; j += step) {
+        if (b[j].amp <= thr) {
+          var q = b[j - step], span = q.amp - b[j].amp;
+          return { p: span > 0 ? b[j].cuffP + (thr - b[j].amp) / span * (q.cuffP - b[j].cuffP) : b[j].cuffP, found: true };
+        }
+      }
+      return { p: b[step < 0 ? 0 : b.length - 1].cuffP, found: false };
+    }
+    var s = cross(-1, r.sbp), d = cross(1, r.dbp), dts = [];
+    for (i = 1; i < b.length; i++) dts.push(b[i].t - b[i - 1].t);
+    var mean = dts.reduce(function (x, y) { return x + y; }, 0) / (dts.length || 1) || 1;
+    var sd = Math.sqrt(dts.reduce(function (x, y) { return x + Math.pow(y - mean, 2); }, 0) / (dts.length || 1));
+    return { sbp: s.p, dbp: d.p, map: b[k].cuffP, reliable: s.found && d.found && b.length >= 8 && sd / mean < 0.12 };
+  }
+  return { apparentPressures: apparentPressures, mapOf: mapOf, korotkoff: korotkoff, oscAmplitude: oscAmplitude,
+    cuffFit: cuffFit, simulateBeats: simulateBeats, auscultatoryReading: auscultatoryReading, estimateOscillometric: estimateOscillometric };
+})();
+</script>
+
+<script data-module="cases">
+// ===== cases: เคสผู้ป่วยและการให้คะแนน =====
+var BPCases = (function () {
+  var CASES = [
+    { id: 'normal', title: '1 · ปกติ', sbp: 120, dbp: 80, hr: 70, armCirc: 28,
+      story: 'ชายอายุ 35 ปี ตรวจสุขภาพประจำปี แขนขนาดปกติ',
+      teach: 'Systolic คือความดัน cuff ที่เริ่มได้ยินเสียง Korotkoff แรก (เลือดเริ่มดันผ่านหลอดเลือดที่ถูกกด) Diastolic คือจุดที่เสียงหาย (หลอดเลือดเปิดเต็มไม่มีการปั่นป่วน)' },
+    { id: 'htn', title: '2 · ความดันสูง', sbp: 168, dbp: 104, hr: 82, armCirc: 30,
+      story: 'หญิงอายุ 58 ปี ปวดศีรษะ ประวัติเบาหวาน ต้องปั๊มสูงกว่าปกติจึงจะไม่พลาด systolic',
+      teach: 'ถ้าปั๊มแค่ ~140 จะได้ยินเสียงตั้งแต่เริ่มและอ่าน systolic ต่ำเกินจริง ควรปั๊มเกินค่าที่คาด ~30 mmHg' },
+    { id: 'hypo', title: '3 · ความดันต่ำ', sbp: 88, dbp: 54, hr: 96, armCirc: 26,
+      story: 'หญิงอายุ 72 ปี อ่อนเพลีย ท้องเสียมา 2 วัน เสียงเบาและช่วงระหว่าง systolic–diastolic แคบ',
+      teach: 'ปริมาตรเลือดลดทำให้ pulse pressure แคบและเสียงเบา ต้องฟังตั้งใจและปล่อยลมช้า' },
+    { id: 'gap', title: '4 · Auscultatory gap', sbp: 170, dbp: 95, hr: 74, armCirc: 30, gap: [150, 120],
+      story: 'ชายอายุ 66 ปี ความดันสูงมานาน เสียงหายไปช่วงหนึ่งแล้วกลับมา',
+      teach: 'เสียงหายกลางทางโดยไม่ใช่ diastolic ถ้าปั๊มไม่สูงพอจะอ่าน systolic ต่ำเกินจริงหลายสิบ mmHg อ่าน systolic ตอนเสียง "แรก" ไม่ใช่เสียงหลังช่วงเงียบ' },
+    { id: 'af', title: '5 · AF (ไม่สม่ำเสมอ)', sbp: 138, dbp: 84, hr: 110, irregular: true, armCirc: 29,
+      story: 'ชายอายุ 74 ปี ใจสั่น ชีพจรเต้นไม่สม่ำเสมอ',
+      teach: 'จังหวะไม่สม่ำเสมอทำให้ stroke volume แต่ละครั้งต่างกัน เครื่องอัตโนมัติจะไม่น่าเชื่อถือ ควรวัดมือและเฉลี่ยหลายครั้ง' },
+    { id: 'large', title: '6 · แขนใหญ่', sbp: 132, dbp: 82, hr: 78, armCirc: 40,
+      story: 'ชายอายุ 45 ปี รอบแขน 40 ซม. ต้องใช้ cuff ใหญ่',
+      teach: 'cuff เล็กเกินไปต้องบีบแรงขึ้นจึงจะหยุดการไหล ค่าที่อ่านสูงเกินจริงราว 10 mmHg' },
+    { id: 'thin', title: '7 · แขนเล็ก', sbp: 118, dbp: 72, hr: 66, armCirc: 20,
+      story: 'หญิงอายุ 25 ปี รอบแขน 20 ซม. ตัวเล็ก',
+      teach: 'cuff ใหญ่เกินไปบีบหลอดเลือดไม่ทั่วถึง ค่าที่อ่านต่ำกว่าจริงเล็กน้อย' }
+  ];
+  function scoreReading(c, e, read) {
+    var es = read.sbp - c.sbp, ed = read.dbp - c.dbp, why = [];
+    if (e.cuffSize === 'small') why.push('cuff เล็กเกินไปสำหรับแขนนี้ → ค่าสูงเกินจริง ~10 mmHg');
+    if (e.cuffSize === 'large') why.push('cuff ใหญ่เกินไปสำหรับแขนนี้ → ค่าต่ำเกินจริง ~5 mmHg');
+    if (e.armLevel === 'below') why.push('แขนต่ำกว่าระดับหัวใจ → ความดันจากน้ำหนักเลือดบวกเพิ่ม ค่าสูงเกินจริง ~8 mmHg (ราว 0.8 mmHg ต่อ ซม.)');
+    if (e.armLevel === 'above') why.push('แขนสูงกว่าระดับหัวใจ → ค่าต่ำเกินจริง ~8 mmHg ควรวางแขนระดับหัวใจ');
+    if (e.deflationRate > 3) why.push('ปล่อยลมเร็วเกินไป (>3 mmHg/s) → พลาดจังหวะแรก/สุดท้าย Systolic ต่ำเกิน Diastolic สูงเกิน');
+    var ok = Math.abs(es) <= 5 && Math.abs(ed) <= 5;
+    var explanation = (ok ? 'ถูกต้อง (ยอมรับ ±5 mmHg). ' : '') + (why.length ? why.join(' | ')
+      : ok ? 'ไม่มีข้อผิดพลาดในการตั้งค่า' : 'ไม่พบข้อผิดพลาดในการตั้งค่า ลองตรวจจุดที่เสียงเริ่มและเสียงหายอีกครั้ง');
+    return { ok: ok, errSbp: es, errDbp: ed, explanation: explanation };
+  }
+  return { CASES: CASES, scoreReading: scoreReading };
+})();
+</script>
+
+<script data-module="ui">
+// ===== ui: DOM / canvas / เสียง =====
+(function () {
+  var E = BPEngine, C = BPCases, $ = function (id) { return document.getElementById(id); };
+  var S = { ci: 0, mode: 'manual', view: 'external', p: 0, pumping: false, valve: 0, trace: [], beats: [], t: 0, nextBeat: 0.5,
+    silentSeen: false, warned: false, heard: 0, sys: null, dia: null, auto: null, flash: 0, sound: true };
+  var cv = $('cv'), g = cv.getContext('2d'), W = 640, H = 360, AC = null;
+  var cur = function () { return C.CASES[S.ci]; };
+  var errs = function () { return { cuffSize: E.cuffFit(cur(), $('cuff').value), armLevel: $('arm').value, deflationRate: S.mode === 'auto' ? 3 : S.valve }; };
+  var css = function (v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); };
+
+  // ---------- เสียง ----------
+  addEventListener('pointerdown', function () {
+    try { AC = AC || new (window.AudioContext || window.webkitAudioContext)(); AC.resume(); } catch (x) { AC = null; }
+  });
+  function thump(phase) {
+    if (!AC || !S.sound) return;
+    var o = AC.createOscillator(), v = AC.createGain(), now = AC.currentTime;
+    o.frequency.value = [0, 95, 110, 85, 60][phase] || 80;
+    v.gain.setValueAtTime([0, .5, .3, .45, .15][phase] || .3, now);
+    v.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+    o.connect(v); v.connect(AC.destination); o.start(); o.stop(now + 0.13);
+  }
+
+  // ---------- สถานะ ----------
+  function reset() {
+    Object.assign(S, { p: 0, pumping: false, trace: [], beats: [], t: 0, nextBeat: 0.5, silentSeen: false, warned: false, heard: 0, sys: null, dia: null, auto: null });
+    $('out-s').textContent = $('out-d').textContent = '–'; $('out-a').textContent = '';
+    $('submit-m').disabled = true; $('submit-a').disabled = true; $('note').textContent = ''; $('result').hidden = true;
+  }
+  function drawCases() {
+    var box = $('cases'); box.innerHTML = '';
+    var done = {}; try { done = JSON.parse(localStorage.getItem('bp-done') || '{}'); } catch (x) {}
+    C.CASES.forEach(function (c, i) {
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', i === S.ci);
+      b.innerHTML = (done[c.id] ? '✓ ' : '') + c.title + '<br><span class="story">' + c.story + '</span>';
+      b.onclick = function () { S.ci = i; reset(); drawCases(); };
+      box.appendChild(b);
+    });
+  }
+  function setMode(m) {
+    S.mode = m; reset();
+    $('m-manual').setAttribute('aria-pressed', m === 'manual'); $('m-auto').setAttribute('aria-pressed', m === 'auto');
+    $('ctl-manual').hidden = m !== 'manual'; $('ctl-auto').hidden = m !== 'auto';
+  }
+  $('m-manual').onclick = function () { setMode('manual'); };
+  $('m-auto').onclick = function () { setMode('auto'); };
+  document.querySelectorAll('[data-view]').forEach(function (b) {
+    b.onclick = function () {
+      S.view = b.dataset.view;
+      document.querySelectorAll('[data-view]').forEach(function (x) { x.setAttribute('aria-pressed', x === b); });
+    };
+  });
+  $('sound').onchange = function () { S.sound = this.checked; };
+  $('cuff').onchange = $('arm').onchange = reset;
+
+  // ---------- โหมดพยาบาล ----------
+  var pump = $('pump');
+  function hold(on) { return function (ev) { if (ev && ev.preventDefault) ev.preventDefault(); S.pumping = on; }; }
+  pump.onpointerdown = hold(true); pump.onpointerup = pump.onpointerleave = pump.onpointercancel = hold(false);
+  pump.onkeydown = function (ev) { if ((ev.key === ' ' || ev.key === 'Enter') && !ev.repeat) { ev.preventDefault(); S.pumping = true; } };
+  pump.onkeyup = hold(false);
+  $('valve').oninput = function () { S.valve = +this.value; $('valve-o').textContent = this.value; };
+  function rec(k) { return function () { S[k] = Math.round(S.p); $(k === 'sys' ? 'out-s' : 'out-d').textContent = S[k]; $('submit-m').disabled = S.sys == null || S.dia == null; }; }
+  $('rec-s').onclick = rec('sys'); $('rec-d').onclick = rec('dia');
+  $('submit-m').onclick = function () { finish({ sbp: S.sys, dbp: S.dia }); };
+
+  function onBeat() {
+    var c = cur(), e = errs(), k = E.korotkoff(c, e, S.p);
+    var amp = E.oscAmplitude(c, e, S.p) * (c.irregular ? 0.6 + 0.6 * Math.random() : 1);
+    S.beats.push({ t: S.t, cuffP: S.p, amp: amp, sound: k.sound, phase: k.phase });
+    if (k.phase === 0) S.silentSeen = true;
+    if (k.sound) {
+      S.heard++; S.flash = 0.12; thump(k.phase);
+      if (!S.pumping && S.valve > 0 && !S.silentSeen && !S.warned) {
+        S.warned = true;
+        $('note').textContent = 'ได้ยินเสียงตั้งแต่ต้น — แปลว่าปั๊มยังไม่สูงกว่า systolic ปั๊มให้ไม่ได้ยินเสียงสักจังหวะ แล้วปล่อยลมใหม่';
+      }
+    }
+  }
+  function stepManual(dt) {
+    var was = S.p;
+    if (S.pumping) { S.p = Math.min(300, S.p + 45 * dt); $('note').textContent = S.warned ? '' : $('note').textContent; }
+    else if (S.valve > 0) S.p = Math.max(0, S.p - S.valve * dt);
+    if (was > 0 && S.p === 0) {
+      if (S.heard === 0) $('note').textContent = 'ลมหมดโดยไม่ได้ยินเสียงเลย — ปั๊มสูงกว่านี้แล้วลองใหม่';
+      S.silentSeen = false; S.warned = false; S.heard = 0;
+    }
+    S.t += dt; S.nextBeat -= dt;
+    if (S.nextBeat <= 0) { S.nextBeat += 60 / cur().hr * (cur().irregular ? 1 + (Math.random() - 0.5) * 0.7 : 1); onBeat(); }
+    S.trace.push({ t: S.t, p: S.p }); if (S.trace.length > 1500) S.trace.shift();
+  }
+
+  // ---------- โหมดวิศวกร ----------
+  var SPEEDUP = 4; // เล่นเร็วขึ้น 4 เท่า (อัตราลมจริง 3 mmHg/s)
+  $('auto').onclick = function () {
+    reset();
+    var c = cur(), e = errs(), start = E.apparentPressures(c, e).sbp + 30;
+    S.auto = { beats: E.simulateBeats(c, e, start), start: start, phase: 'inflate', at: 0, i: 0 };
+  };
+  function estimate() {
+    var r = { sbp: +$('r-s').value, dbp: +$('r-d').value };
+    return E.estimateOscillometric(S.auto.beats, r);
+  }
+  function showAuto() {
+    var a = S.auto, r = estimate(), bs = a.beats, hr = bs.length > 1 ? Math.round((bs.length - 1) / (bs[bs.length - 1].t - bs[0].t) * 60) : 0;
+    a.res = r;
+    $('out-a').textContent = 'SBP ' + Math.round(r.sbp) + ' / DBP ' + Math.round(r.dbp) + ' mmHg · MAP ' + Math.round(r.map) + ' · HR ' + hr + ' ครั้ง/นาที' + (r.reliable ? '' : ' — ⚠ ไม่น่าเชื่อถือ (จังหวะไม่สม่ำเสมอ/ข้อมูลไม่พอ/ปั๊มไม่เหมาะ) ควรวัดซ้ำด้วยมือ');
+    $('submit-a').disabled = false;
+  }
+  $('r-s').onchange = $('r-d').onchange = function () { if (S.auto && S.auto.phase === 'done') showAuto(); };
+  $('submit-a').onclick = function () { finish({ sbp: Math.round(S.auto.res.sbp), dbp: Math.round(S.auto.res.dbp) }); };
+  function stepAuto(dt) {
+    var a = S.auto; if (!a) return;
+    if (a.phase === 'inflate') { S.p = Math.min(a.start, S.p + 100 * dt); if (S.p >= a.start) a.phase = 'deflate'; }
+    else if (a.phase === 'deflate') {
+      a.at += dt * SPEEDUP; S.p = Math.max(0, a.start - 3 * a.at);
+      while (a.i < a.beats.length && a.beats[a.i].t <= a.at) { S.beats.push(a.beats[a.i++]); S.flash = 0.1; }
+      S.trace.push({ t: a.at, p: S.p });
+      if (a.i >= a.beats.length) { a.phase = 'done'; S.p = 0; showAuto(); }
+    }
+  }
+
+  // ---------- ผลคะแนน ----------
+  function finish(read) {
+    var c = cur(), e = errs(), s = C.scoreReading(c, e, read);
+    var box = $('result'); box.hidden = false;
+    box.innerHTML = '<h2 class="' + (s.ok ? 'ok' : 'no') + '">' + (s.ok ? '✓ ถูกต้อง' : '✗ คลาดเคลื่อน') + '</h2>' +
+      '<p>ค่าจริง <b>' + c.sbp + '/' + c.dbp + '</b> · ที่อ่านได้ <b>' + read.sbp + '/' + read.dbp + '</b> (ต่าง ' + (s.errSbp >= 0 ? '+' : '') + s.errSbp + ' / ' + (s.errDbp >= 0 ? '+' : '') + s.errDbp + ')</p>' +
+      '<p>' + s.explanation + '</p><p><b>แนวคิดทางคลินิก:</b> ' + c.teach + '</p>' +
+      '<button id="next">เคสถัดไป</button> <button id="again">ลองใหม่</button>';
+    $('next').onclick = function () { S.ci = (S.ci + 1) % C.CASES.length; reset(); drawCases(); };
+    $('again').onclick = reset;
+    if (s.ok) try { var d = JSON.parse(localStorage.getItem('bp-done') || '{}'); d[c.id] = 1; localStorage.setItem('bp-done', JSON.stringify(d)); drawCases(); } catch (x) {}
+    box.scrollIntoView({ block: 'nearest' });
+  }
+
+  // ---------- วาด ----------
+  function resize() { var r = cv.getBoundingClientRect(), d = devicePixelRatio || 1; cv.width = r.width * d; cv.height = r.height * d; g.setTransform(cv.width / W, 0, 0, cv.height / H, 0, 0); }
+  addEventListener('resize', resize); resize();
+  function txt(s, x, y, o) { o = o || {}; g.fillStyle = o.c || css('--ink'); g.font = (o.f || 13) + 'px system-ui,sans-serif'; g.textAlign = o.a || 'center'; g.fillText(s, x, y); }
+  function box(x, y, w, h, on, label, sub) {
+    g.fillStyle = on ? css('--acc') : css('--bg'); g.strokeStyle = css('--line'); g.lineWidth = 1.5;
+    g.beginPath(); g.roundRect(x, y, w, h, 8); g.fill(); g.stroke();
+    txt(label, x + w / 2, y + 26, { c: on ? '#fff' : css('--ink'), f: 14 }); txt(sub, x + w / 2, y + 46, { c: on ? '#fff' : css('--mute'), f: 11 });
+  }
+  function arrow(x1, y1, x2, y2) {
+    g.strokeStyle = css('--mute'); g.fillStyle = css('--mute'); g.lineWidth = 2; g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
+    var a = Math.atan2(y2 - y1, x2 - x1); g.beginPath(); g.moveTo(x2, y2); g.lineTo(x2 - 8 * Math.cos(a - .4), y2 - 8 * Math.sin(a - .4)); g.lineTo(x2 - 8 * Math.cos(a + .4), y2 - 8 * Math.sin(a + .4)); g.fill();
+  }
+  function dial(cx, cy, r) {
+    g.strokeStyle = css('--ink'); g.lineWidth = 2; g.fillStyle = css('--card'); g.beginPath(); g.arc(cx, cy, r, 0, 7); g.fill(); g.stroke();
+    for (var v = 0; v <= 300; v += 20) {
+      var a = (-225 + v * 0.9) * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+      g.beginPath(); g.moveTo(cx + c * (r - 8), cy + s * (r - 8)); g.lineTo(cx + c * (r - 2), cy + s * (r - 2)); g.stroke();
+      if (v % 40 === 0) txt(v, cx + c * (r - 20), cy + s * (r - 20) + 4, { f: 10 });
+    }
+    var n = (-225 + S.p * 0.9) * Math.PI / 180; g.strokeStyle = css('--bad'); g.lineWidth = 3;
+    g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(n) * (r - 12), cy + Math.sin(n) * (r - 12)); g.stroke();
+    txt('mmHg', cx, cy + r * 0.55, { f: 11, c: css('--mute') }); txt(Math.round(S.p), cx, cy + r * 0.8, { f: 14 });
+  }
+  function drawExternal() {
+    var off = { below: 28, heart: 0, above: -28 }[$('arm').value], ay = 150 + off;
+    g.setLineDash([5, 4]); g.strokeStyle = css('--mute'); g.beginPath(); g.moveTo(20, 165); g.lineTo(330, 165); g.stroke(); g.setLineDash([]);
+    txt('♥ ระดับหัวใจ', 70, 158, { f: 11, c: css('--mute') });
+    g.fillStyle = '#e8b896'; g.beginPath(); g.roundRect(40, ay, 270, 36, 18); g.fill();
+    var fit = E.cuffFit(cur(), $('cuff').value), cw = { small: 56, ok: 80, large: 104 }[fit] || 80;
+    g.fillStyle = '#3b82c4'; g.beginPath(); g.roundRect(90, ay - 10, cw, 56, 6); g.fill();
+    txt('cuff', 90 + cw / 2, ay + 22, { c: '#fff' });
+    g.fillStyle = S.flash > 0 ? css('--acc') : css('--mute'); g.beginPath(); g.arc(250, ay + 18, 11, 0, 7); g.fill();
+    if (S.mode === 'manual') { txt('หูฟัง', 250, ay - 8, { f: 11 }); }
+    arrow(90 + cw, ay + 18, 400, 150);
+    if (S.mode === 'manual') { dial(480, 140, 70); g.fillStyle = css('--acc'); g.beginPath(); g.ellipse(480, 280, 34, 26, 0, 0, 7); g.fill(); txt('ลูกยางปั๊ม', 480, 320, { f: 11 }); }
+    else {
+      g.fillStyle = css('--bg'); g.strokeStyle = css('--ink'); g.lineWidth = 2; g.beginPath(); g.roundRect(400, 90, 200, 140, 10); g.fill(); g.stroke();
+      var a = S.auto, label = !a ? 'พร้อม' : a.phase === 'inflate' ? 'กำลังปั๊ม…' : a.phase === 'deflate' ? 'กำลังวัด…' : Math.round(a.res.sbp) + '/' + Math.round(a.res.dbp);
+      txt(label, 500, 150, { f: 26 }); txt(Math.round(S.p) + ' mmHg', 500, 185, { c: css('--mute') });
+    }
+  }
+  function drawMech() {
+    var man = S.mode === 'manual', deflating = man ? (!S.pumping && S.valve > 0 && S.p > 0) : S.auto && S.auto.phase === 'deflate';
+    var inflating = man ? S.pumping : S.auto && S.auto.phase === 'inflate', done = S.auto && S.auto.phase === 'done';
+    var N = man ? [
+      { l: 'ลูกยางปั๊ม', s: 'อัดอากาศเข้า cuff', c: 0, r: 0, on: inflating },
+      { l: 'วาล์วเข็ม', s: 'ปล่อยลม 2–3 mmHg/s', c: 1, r: 0, on: deflating },
+      { l: 'Cuff', s: 'บีบหลอดเลือดแขน', c: 2, r: 0, on: S.p > 0 },
+      { l: 'เกจเข็ม', s: 'bourdon tube อ่านความดัน', c: 3, r: 0, on: S.p > 0 },
+      { l: 'หูฟัง', s: 'ฟังเสียง Korotkoff', c: 2, r: 1, on: S.flash > 0 }]
+      : [{ l: 'ปั๊มมอเตอร์', s: 'อัดลมถึง sbp+30', c: 0, r: 0, on: inflating },
+      { l: 'วาล์วระบาย', s: 'ปล่อยลมคงที่ ~3 mmHg/s', c: 1, r: 0, on: deflating },
+      { l: 'Cuff', s: 'ส่งสัญญาณชีพจร', c: 2, r: 0, on: S.p > 0 },
+      { l: 'เซนเซอร์ความดัน', s: 'piezoresistive', c: 3, r: 0, on: deflating },
+      { l: 'ADC', s: 'แปลงเป็นดิจิทัล', c: 3, r: 1, on: deflating },
+      { l: 'MCU', s: 'กรอง→envelope→MAP', c: 2, r: 1, on: deflating || done },
+      { l: 'จอแสดงผล', s: 'SBP / DBP / HR', c: 1, r: 1, on: done }];
+    var P = function (n) { return { x: 10 + n.c * 160, y: 40 + n.r * 130 }; };
+    N.forEach(function (n) { var p = P(n); box(p.x, p.y, 140, 64, n.on, n.l, n.s); });
+    var edges = man ? [[0, 1], [1, 2], [2, 3], [2, 4]] : [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6]];
+    edges.forEach(function (e) {
+      var a = P(N[e[0]]), b = P(N[e[1]]);
+      if (a.y === b.y) { var d = b.x > a.x ? 1 : -1; arrow(a.x + (d > 0 ? 140 : 0), a.y + 32, b.x + (d > 0 ? 0 : 140), b.y + 32); }
+      else { var dd = b.y > a.y ? 1 : -1; arrow(a.x + 70, a.y + (dd > 0 ? 64 : 0), b.x + 70, b.y + (dd > 0 ? 0 : 64)); }
+    });
+  }
+  function drawSignal() {
+    var L = 50, R = 630, T = 20, B = 220, B2 = 340, T2 = 250, tmax = Math.max(10, S.trace.length ? S.trace[S.trace.length - 1].t : 10);
+    var X = function (t) { return L + t / tmax * (R - L); }, Y = function (p) { return B - p / 260 * (B - T); };
+    g.strokeStyle = css('--line'); g.lineWidth = 1; g.strokeRect(L, T, R - L, B - T); g.strokeRect(L, T2, R - L, B2 - T2);
+    for (var p = 0; p <= 250; p += 50) { txt(p, L - 6, Y(p) + 4, { a: 'right', f: 10, c: css('--mute') }); }
+    txt('ความดัน cuff (mmHg)', L + 4, T + 12, { a: 'left', f: 10, c: css('--mute') });
+    txt('oscillation (แอมพลิจูดต่อจังหวะ)', L + 4, T2 + 12, { a: 'left', f: 10, c: css('--mute') });
+    g.strokeStyle = css('--acc'); g.lineWidth = 2; g.beginPath();
+    S.trace.forEach(function (q, i) { i ? g.lineTo(X(q.t), Y(q.p)) : g.moveTo(X(q.t), Y(q.p)); }); g.stroke();
+    var pc = ['', '#e53935', '#fb8c00', '#fdd835', '#43a047'];
+    S.beats.forEach(function (b) {
+      var h = b.amp * (B2 - T2 - 20); g.fillStyle = css('--acc'); g.fillRect(X(b.t) - 2, B2 - h, 4, h);
+      if (b.sound) { g.fillStyle = pc[b.phase] || '#999'; g.beginPath(); g.arc(X(b.t), Y(b.cuffP), 4, 0, 7); g.fill(); }
+    });
+    if (S.auto && S.auto.phase === 'done') {
+      var r = S.auto.res; g.setLineDash([4, 3]); g.lineWidth = 1;
+      [['SBP', r.sbp], ['MAP', r.map], ['DBP', r.dbp]].forEach(function (m) { g.strokeStyle = css('--bad'); g.beginPath(); g.moveTo(L, Y(m[1])); g.lineTo(R, Y(m[1])); g.stroke(); txt(m[0] + ' ' + Math.round(m[1]), R - 4, Y(m[1]) - 3, { a: 'right', f: 11, c: css('--bad') }); });
+      g.setLineDash([]); g.strokeStyle = css('--ink'); g.beginPath();
+      S.beats.forEach(function (b, i) { var h = b.amp * (B2 - T2 - 20); i ? g.lineTo(X(b.t), B2 - h) : g.moveTo(X(b.t), B2 - h); }); g.stroke();
+    }
+    if (S.mode === 'manual') txt('จุดสี = เสียง Korotkoff เฟส 1–4 (เฉลยสัญญาณ)', R, T2 - 4, { a: 'right', f: 10, c: css('--mute') });
+  }
+  var CAPS = {
+    external: 'แขนวางตามตำแหน่งที่เลือก cuff ขนาดตามที่เลือกเทียบกับรอบแขนของผู้ป่วย ลองเปลี่ยนแล้วดูว่าค่าที่อ่านเปลี่ยนอย่างไร',
+    mech: 'ส่วนที่สว่างคือส่วนที่กำลังทำงาน ลมไหลจากปั๊ม→วาล์ว→cuff แล้วความดันถูกอ่านผ่านเกจ (มือ) หรือเซนเซอร์→ADC→MCU (อัตโนมัติ)',
+    signal: 'บน: ความดัน cuff ลดลงตามเวลา ล่าง: แอมพลิจูด oscillation ที่ชีพจรสร้างบน cuff แต่ละจังหวะ สูงสุดที่ MAP — เครื่องหาค่า SBP/DBP จากสัดส่วนของจุดสูงสุดนี้'
+  };
+  var last = performance.now();
+  function frame(now) {
+    var dt = Math.min(0.1, (now - last) / 1000); last = now; S.flash = Math.max(0, S.flash - dt);
+    $('steth').className = S.flash > 0 ? 'beat' : '';
+    if (S.mode === 'manual') stepManual(dt); else stepAuto(dt);
+    g.clearRect(0, 0, W, H);
+    (S.view === 'external' ? drawExternal : S.view === 'mech' ? drawMech : drawSignal)();
+    $('cap').textContent = CAPS[S.view];
+    requestAnimationFrame(frame);
+  }
+  drawCases(); requestAnimationFrame(frame);
+  window.__bp = { S: S, cur: cur, errs: errs };
+})();
+</script>
+</body>
+</html>
